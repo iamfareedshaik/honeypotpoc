@@ -118,10 +118,11 @@ const appendDataToWorkbook = (workbook, data, callback, fileName) => {
 // Route to add item to DynamoDB
 app.post("/logs", (req, res) => {
   const item = req.body;
-
+  const {session_id, honeypotname, time_stamp, src_ip} = item 
+  const dynamoParam = {session_id, honeypotname, time_stamp, src_ip}
   const params = {
     TableName: "HoneyPotLogs",
-    Item: item,
+    Item: dynamoParam,
   };
 
   dynamoDb.put(params, (err, data) => {
@@ -149,7 +150,7 @@ app.get('/logs/:filename', async (req, res) => {
   const filename = req.params.filename;
   const params = {
     Bucket: 'cowrie-commands',
-    Key: `logs/${filename}.xlsx`
+    Key: `logs/${filename}`
   };
 
   try {
