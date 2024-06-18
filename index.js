@@ -23,7 +23,6 @@ const s3 = new AWS.S3();
 
 app.use(bodyParser.json());
 
-
 // Function to upload data to S3
 const uploadToS3 = (data, callback) => {
   const { session_id } = data;
@@ -109,12 +108,11 @@ const appendDataToWorkbook = (workbook, data, callback, fileName) => {
       console.error("Error uploading updated file to S3:", uploadErr);
       callback(uploadErr);
     } else {
-            console.log("Successfully appended data to existing file in S3:", uploadData);
+      console.log("Successfully appended data to existing file in S3:", uploadData);
       callback(null, uploadData);
     }
   });
 };
-
 
 
 // Route to add item to DynamoDB
@@ -141,13 +139,13 @@ app.post("/logs", (req, res) => {
         } else {
           res.status(200).json({ success: "Item added and logged successfully", data, s3Data });
         }
-
-    });
+      });
     }
   });
 });
 
-app.get('/logdata/:filename', async (req, res) => {
+
+app.get('/logs/:filename', async (req, res) => {
   const filename = req.params.filename;
   const params = {
     Bucket: 'cowrie-commands',
@@ -159,12 +157,12 @@ app.get('/logdata/:filename', async (req, res) => {
     const data = await s3.getObject(params).promise();
 
     // Parse Excel file
-    const workbook = XLSX.read(data.Body, { type: 'buffer' });
+    const workbook = xlsx.read(data.Body, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
 
     // Convert sheet to JSON
-    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    const jsonData = xlsx.utils.sheet_to_json(worksheet);
 
     // Send JSON response
     res.json(jsonData);
@@ -172,31 +170,6 @@ app.get('/logdata/:filename', async (req, res) => {
     console.error(error);
     res.status(500).send('Error retrieving or processing the file');
   }
-});
-
-// Route to get item from DynamoDB
-app.get("/logs/:id", (req, res) => {
-  const { tableName, id } = req.params;
-
-  const params = {
-    TableName: "HoneyPotLogs",
-    Key: {
-      id: id, // adjust according to your primary key
-    },
-  };
-
-  dynamoDb.get(params, (err, data) => {
-    if (err) {
-      console.error(
-        "Unable to read item. Error JSON:",
-        JSON.stringify(err, null, 2)
-      );
-      res.status(500).json({ error: "Could not get item" });
-    } else {
-      console.log("GetItem succeeded:", JSON.stringify(data, null, 2));
-      res.status(200).json({ success: "Item retrieved successfully", data });
-    }
-  });
 });
 
 
@@ -223,8 +196,6 @@ app.get("/logs", (req, res) => {
   });
 });
 
-
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
-    
