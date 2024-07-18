@@ -4,18 +4,11 @@ const bodyParser = require("body-parser");
 const xlsx = require("xlsx");
 const fs = require("fs");
 require('dotenv').config();
-
+AWS.config.update({ region: 'eu-north-1' });
 const app = express();
 const port = 3000;
 
 //AWS.config.update({ region: 'eu-north-1', profile: 'pochoneypot' });
-
-AWS.config.update({
-  region: process.env.AWS_REGION,
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  sessionToken: process.env.AWS_SESSION_TOKEN,
-});
 
 // Create DynamoDB service object
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
@@ -42,7 +35,7 @@ const uploadToS3 = (data, callback) => {
       // File exists, load existing workbook
       s3.getObject({ Bucket: process.env.S3_BUCKET_NAME, Key: fileName }, (getErr, getData) => {
         if (getErr) {
-          console.error("Error fetching existing file from S3:", getErr);
+                    console.error("Error fetching existing file from S3:", getErr);
           callback(getErr);
           return;
         }
@@ -105,7 +98,7 @@ const appendDataToWorkbook = (workbook, data, callback, fileName) => {
 
   s3.upload(params, (uploadErr, uploadData) => {
     if (uploadErr) {
-      console.error("Error uploading updated file to S3:", uploadErr);
+            console.error("Error uploading updated file to S3:", uploadErr);
       callback(uploadErr);
     } else {
       console.log("Successfully appended data to existing file in S3:", uploadData);
@@ -118,8 +111,8 @@ const appendDataToWorkbook = (workbook, data, callback, fileName) => {
 // Route to add item to DynamoDB
 app.post("/logs", (req, res) => {
   const item = req.body;
-  const {session_id, honeypotname, time_stamp, src_ip} = item 
-  const dynamoParam = {session_id, honeypotname, time_stamp, src_ip}
+  const {session_id, honeypotname, time_stamp, src_ip} = item
+  const dynamoParam = {session_id, honeypotname, time_stamp, src_ip,isAnalysed:false}
   const params = {
     TableName: "HoneyPotLogs",
     Item: dynamoParam,
@@ -138,13 +131,41 @@ app.post("/logs", (req, res) => {
         if (err) {
           res.status(500).json({ error: "Could not upload log to S3" });
         } else {
-          res.status(200).json({ success: "Item added and logged successfully", data, s3Data });
+                    res.status(200).json({ success: "Item added and logged successfully", data, s3Data });
         }
       });
     }
   });
 });
 
+app.put("/logs/analyse/:session_id", (req, res) => {
+  const session_id = req.params.session_id;
+
+  const params = {
+    TableName: "HoneyPotLogs",
+    Key: {
+      session_id: session_id,
+    },
+    UpdateExpression: "set isAnalysed = :true",
+    ExpressionAttributeValues: {
+      ":true": true
+    },
+    ReturnValues: "UPDATED_NEW"
+  };
+
+  dynamoDb.update(params, (err, data) => {
+    if (err) {
+      console.error(
+        "Unable to update item. Error JSON:",
+        JSON.stringify(err, null, 2)
+      );
+      res.status(500).json({ error: "Could not update item" });
+    } else {
+      console.log("Updated item:", JSON.stringify(data, null, 2));
+      res.status(200).json({ success: "Item updated successfully", data });
+    }
+  });
+});
 
 app.get('/logs/:filename', async (req, res) => {
   const filename = req.params.filename;
@@ -174,6 +195,48 @@ app.get('/logs/:filename', async (req, res) => {
 });
 
 
+app.get('/logs/allitems/:size', async (req, res) => {
+  const { size } = req.params;
+  const { lastEvaluatedKey } = req.query;
+  let items = [];
+  const limit = parseInt(size);
+    const params = {
+    TableName: 'HoneyPotLogs',
+    Limit: limit,
+  };
+
+  if (lastEvaluatedKey) {
+    params.ExclusiveStartKey = JSON.parse(lastEvaluatedKey);
+  }
+
+  const scanWithExponentialBackoff = async (params, retryCount = 0) => {
+    try {
+      const data = await dynamoDb.scan(params).promise();
+      return data;
+    } catch (error) {
+      if (error.code === 'ProvisionedThroughputExceededException' && retryCount < 5) {
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 100));
+        return scanWithExponentialBackoff(params, retryCount + 1);
+      } else {
+        throw error;
+      }
+    }
+  };
+
+  try {
+    const data = await scanWithExponentialBackoff(params);
+    items = data.Items;
+    const response = {
+      items,
+      lastEvaluatedKey: data.LastEvaluatedKey ? JSON.stringify(data.LastEvaluatedKey) : null,
+    };
+
+    res.status(200).json(response);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Error retrieving or processing the logs');
+  }
+    });
 
 // Route to scan and get all items from a DynamoDB table
 app.get("/logs", (req, res) => {
@@ -197,6 +260,37 @@ app.get("/logs", (req, res) => {
   });
 });
 
+app.get("/analyse/logs", (req, res) => {
+  const params = {
+    TableName: "HoneyPotLogs",
+    FilterExpression: "isAnalysed = :false",
+    ExpressionAttributeValues: {
+      ":false": false
+    }
+  };
+
+  dynamoDb.scan(params, (err, data) => {
+        if (err) {
+      console.error(
+        "Unable to scan table. Error JSON:",
+        JSON.stringify(err, null, 2)
+      );
+      res.status(500).json({ error: "Could not scan table" });
+    } else {
+      console.log("Scan succeeded:", JSON.stringify(data, null, 2));
+      res.status(200).json({ success: "Table scanned successfully", data });
+    }
+  });
+});
+
+
+
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
+
+  
+
+
+        
